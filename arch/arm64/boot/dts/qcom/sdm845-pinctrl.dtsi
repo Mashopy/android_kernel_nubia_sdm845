@@ -371,12 +371,12 @@
 
 			pcie1_wake_default: pcie1_wake_default {
 				mux {
-					pins = "gpio104";
+					pins = "gpio102";
 					function = "gpio";
 				};
 
 				config {
-					pins = "gpio104";
+					pins = "gpio102";
 					drive-strength = <2>;
 					bias-pull-down;
 				};
@@ -699,12 +699,12 @@
 
 		sde_dp_aux_active: sde_dp_aux_active {
 			mux {
-				pins = "gpio43", "gpio51";
+				pins = "gpio39", "gpio40";
 				function = "gpio";
 			};
 
 			config {
-				pins = "gpio43", "gpio51";
+				pins = "gpio39", "gpio40";
 				bias-disable = <0>; /* no pull */
 				drive-strength = <8>;
 			};
@@ -712,12 +712,12 @@
 
 		sde_dp_aux_suspend: sde_dp_aux_suspend {
 			mux {
-				pins = "gpio43", "gpio51";
+				pins = "gpio39", "gpio40";
 				function = "gpio";
 			};
 
 			config {
-				pins = "gpio43", "gpio51";
+				pins = "gpio39", "gpio40";
 				bias-pull-down;
 				drive-strength = <2>;
 			};
@@ -1807,14 +1807,14 @@
 		qupv3_se2_spi_pins: qupv3_se2_spi_pins {
 			qupv3_se2_spi_active: qupv3_se2_spi_active {
 				mux {
-					pins = "gpio27", "gpio28", "gpio29",
-								"gpio30";
+					pins = "gpio27", "gpio28", "gpio29"/*,
+								"gpio30"*/;
 					function = "qup2";
 				};
 
 				config {
-					pins = "gpio27", "gpio28", "gpio29",
-								"gpio30";
+					pins = "gpio27", "gpio28", "gpio29"/*,
+								"gpio30"*/;
 					drive-strength = <6>;
 					bias-disable;
 				};
@@ -1822,14 +1822,14 @@
 
 			qupv3_se2_spi_sleep: qupv3_se2_spi_sleep {
 				mux {
-					pins = "gpio27", "gpio28", "gpio29",
-								"gpio30";
+					pins = "gpio27", "gpio28", "gpio29"/*,
+								"gpio30"*/;
 					function = "gpio";
 				};
 
 				config {
-					pins = "gpio27", "gpio28", "gpio29",
-								"gpio30";
+					pins = "gpio27", "gpio28", "gpio29"/*,
+								"gpio30"*/;
 					drive-strength = <6>;
 					bias-disable;
 				};
@@ -3220,6 +3220,30 @@
 				function = "tsif2_sync";
 				drive_strength = <2>;	/* 2 mA */
 				bias-pull-down;		/* pull down */
+			};
+		};
+
+		atest_usb13_active: atest_usb13_active {
+			mux {
+				pins = "gpio30";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio30";
+				drive-strength = <12>;
+				bias-pull-up;
+			};
+		};
+
+		atest_usb13_suspend: atest_usb13_suspend {
+			mux {
+				pins = "gpio30";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio30";
+				bias-pull-down;
+				drive-strength = <2>;
 			};
 		};
 	};

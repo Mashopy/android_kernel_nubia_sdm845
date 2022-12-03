@@ -273,6 +273,7 @@
 
 &soc {
 	hbtp {
+		status = "disabled";
 		compatible = "qcom,hbtp-input";
 		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend";
 		pinctrl-0 = <&ts_rst_active>;
