@@ -163,6 +163,7 @@ enum {
 #define MAX_DISCARD_BLOCKS(sbi)		BLKS_PER_SEC(sbi)
 #define DEF_MAX_DISCARD_REQUEST		8	/* issue 8 discards per round */
 #define DEF_MIN_DISCARD_ISSUE_TIME	50	/* 50 ms, if exists */
+#define DEF_MID_DISCARD_ISSUE_TIME	500	/* 500 ms, if device busy */
 #define DEF_MAX_DISCARD_ISSUE_TIME	60000	/* 60 s, if no candidates */
 #define DEF_CP_INTERVAL			60	/* 60 secs */
 #define DEF_IDLE_INTERVAL		5	/* 5 secs */
@@ -264,6 +265,7 @@ enum {
 struct discard_policy {
 	int type;			/* type of discard */
 	unsigned int min_interval;	/* used for candidates exist */
+	unsigned int mid_interval;	/* used for device busy */
 	unsigned int max_interval;	/* used for candidates not exist */
 	unsigned int max_requests;	/* # of discards issued per round */
 	unsigned int io_aware_gran;	/* minimum granularity discard not be aware of I/O */
@@ -1035,6 +1037,13 @@ enum {
 	MAX_TIME,
 };
 
+
+enum fsync_mode {
+	FSYNC_MODE_POSIX,	/* fsync follows posix semantics */
+	FSYNC_MODE_STRICT,	/* fsync behaves in line with ext4 */
+	FSYNC_MODE_NOBARRIER,	/* fsync behaves nobarrier based on posix */
+};
+
 struct f2fs_sb_info {
 	struct super_block *sb;			/* pointer to VFS super block */
 	struct proc_dir_entry *s_proc;		/* proc entry */
@@ -1218,6 +1227,9 @@ struct f2fs_sb_info {
 	char *s_qf_names[MAXQUOTAS];
 	int s_jquota_fmt;			/* Format of quota to use */
 #endif
+
+	/* fsync policy */
+	int fsync_mode;
 };
 
 #ifdef CONFIG_F2FS_FAULT_INJECTION

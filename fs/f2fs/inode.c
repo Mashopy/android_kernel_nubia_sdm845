@@ -317,6 +317,7 @@ make_now:
 	if (ino == F2FS_NODE_INO(sbi)) {
 		inode->i_mapping->a_ops = &f2fs_node_aops;
 		mapping_set_gfp_mask(inode->i_mapping, GFP_F2FS_ZERO);
+//		mapping_set_gfp_mask(inode->i_mapping, GFP_F2FS_NODE_MAPPING);
 	} else if (ino == F2FS_META_INO(sbi)) {
 		inode->i_mapping->a_ops = &f2fs_meta_aops;
 		mapping_set_gfp_mask(inode->i_mapping, GFP_F2FS_ZERO);

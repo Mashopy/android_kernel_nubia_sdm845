@@ -1421,9 +1421,11 @@ static int issue_discard_thread(void *data)
 		sb_start_intwrite(sbi->sb);
 
 		issued = __issue_discard_cmd(sbi, &dpolicy);
-		if (issued) {
+		if (issued > 0) {
 			__wait_all_discard_cmd(sbi, &dpolicy);
 			wait_ms = dpolicy.min_interval;
+		} else if (issued == -1){
+			wait_ms = dpolicy.mid_interval;
 		} else {
 			wait_ms = dpolicy.max_interval;
 		}
@@ -1722,10 +1724,12 @@ void init_discard_policy(struct discard_policy *dpolicy,
 
 	if (discard_type == DPOLICY_BG) {
 		dpolicy->min_interval = DEF_MIN_DISCARD_ISSUE_TIME;
+		dpolicy->mid_interval = DEF_MID_DISCARD_ISSUE_TIME;
 		dpolicy->max_interval = DEF_MAX_DISCARD_ISSUE_TIME;
 		dpolicy->io_aware = true;
 	} else if (discard_type == DPOLICY_FORCE) {
 		dpolicy->min_interval = DEF_MIN_DISCARD_ISSUE_TIME;
+		dpolicy->mid_interval = DEF_MID_DISCARD_ISSUE_TIME;
 		dpolicy->max_interval = DEF_MAX_DISCARD_ISSUE_TIME;
 		dpolicy->io_aware = true;
 	} else if (discard_type == DPOLICY_FSTRIM) {
@@ -3489,6 +3493,7 @@ static int build_sit_entries(struct f2fs_sb_info *sbi)
 	unsigned int i, start, end;
 	unsigned int readed, start_blk = 0;
 	int err = 0;
+	block_t total_node_blocks = 0;
 
 	do {
 		readed = ra_meta_pages(sbi, start_blk, BIO_MAX_PAGES,
@@ -3511,6 +3516,8 @@ static int build_sit_entries(struct f2fs_sb_info *sbi)
 			if (err)
 				return err;
 			seg_info_from_raw_sit(se, &sit);
+			if (IS_NODESEG(se->type))
+				total_node_blocks += se->valid_blocks;
 
 			/* build discard map only one time */
 			if (f2fs_discard_en(sbi)) {
@@ -3539,15 +3546,28 @@ static int build_sit_entries(struct f2fs_sb_info *sbi)
 		unsigned int old_valid_blocks;
 
 		start = le32_to_cpu(segno_in_journal(journal, i));
+		if (start >= MAIN_SEGS(sbi)) {
+			f2fs_msg(sbi->sb, KERN_ERR,
+					"Wrong journal entry on segno %u",
+					start);
+			set_sbi_flag(sbi, SBI_NEED_FSCK);
+			err = -EINVAL;
+			break;
+		}
+
 		se = &sit_i->sentries[start];
 		sit = sit_in_journal(journal, i);
 
 		old_valid_blocks = se->valid_blocks;
+		if (IS_NODESEG(se->type))
+			total_node_blocks -= old_valid_blocks;
 
 		err = check_block_count(sbi, start, &sit);
 		if (err)
 			break;
 		seg_info_from_raw_sit(se, &sit);
+		if (IS_NODESEG(se->type))
+			total_node_blocks += se->valid_blocks;
 
 		if (f2fs_discard_en(sbi)) {
 			if (is_set_ckpt_flags(sbi, CP_TRIMMED_FLAG)) {
@@ -3566,6 +3586,15 @@ static int build_sit_entries(struct f2fs_sb_info *sbi)
 				se->valid_blocks - old_valid_blocks;
 	}
 	up_read(&curseg->journal_rwsem);
+
+	if (!err && total_node_blocks != valid_node_count(sbi)) {
+		f2fs_msg(sbi->sb, KERN_ERR,
+			"SIT is corrupted node# %u vs %u",
+			total_node_blocks, valid_node_count(sbi));
+		set_sbi_flag(sbi, SBI_NEED_FSCK);
+		err = -EINVAL;
+	}
+
 	return err;
 }
 

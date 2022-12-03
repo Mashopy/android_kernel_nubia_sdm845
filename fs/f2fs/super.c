@@ -129,6 +129,7 @@ enum {
 	Opt_jqfmt_vfsold,
 	Opt_jqfmt_vfsv0,
 	Opt_jqfmt_vfsv1,
+	Opt_fsync,
 	Opt_err,
 };
 
@@ -182,6 +183,7 @@ static match_table_t f2fs_tokens = {
 	{Opt_jqfmt_vfsold, "jqfmt=vfsold"},
 	{Opt_jqfmt_vfsv0, "jqfmt=vfsv0"},
 	{Opt_jqfmt_vfsv1, "jqfmt=vfsv1"},
+	{Opt_fsync, "fsync_mode=%s"},
 	{Opt_err, NULL},
 };
 
@@ -679,6 +681,25 @@ static int parse_options(struct super_block *sb, char *options)
 					"quota operations not supported");
 			break;
 #endif
+		case Opt_fsync:
+			name = match_strdup(&args[0]);
+			if (!name)
+				return -ENOMEM;
+			if (strlen(name) == 5 &&
+					!strncmp(name, "posix", 5)) {
+				sbi->fsync_mode = FSYNC_MODE_POSIX;
+			} else if (strlen(name) == 6 &&
+					!strncmp(name, "strict", 6)) {
+				sbi->fsync_mode = FSYNC_MODE_STRICT;
+			} else if (strlen(name) == 9 &&
+					!strncmp(name, "nobarrier", 9)) {
+				sbi->fsync_mode = FSYNC_MODE_NOBARRIER;
+			} else {
+				kfree(name);
+				return -EINVAL;
+			}
+			kfree(name);
+			break;
 		default:
 			f2fs_msg(sb, KERN_ERR,
 				"Unrecognized mount option \"%s\" or missing value",
@@ -1226,6 +1247,11 @@ static int f2fs_show_options(struct seq_file *seq, struct dentry *root)
 #endif
 	f2fs_show_quota_options(seq, sbi->sb);
 
+
+	if (sbi->fsync_mode == FSYNC_MODE_POSIX)
+		seq_printf(seq, ",fsync_mode=%s", "posix");
+	else if (sbi->fsync_mode == FSYNC_MODE_STRICT)
+		seq_printf(seq, ",fsync_mode=%s", "strict");
 	return 0;
 }
 
@@ -1234,6 +1260,7 @@ static void default_options(struct f2fs_sb_info *sbi)
 	/* init some FS parameters */
 	sbi->active_logs = NR_CURSEG_TYPE;
 	sbi->inline_xattr_size = DEFAULT_INLINE_XATTR_ADDRS;
+	sbi->fsync_mode = FSYNC_MODE_POSIX;
 
 	set_opt(sbi, BG_GC);
 	set_opt(sbi, INLINE_XATTR);
@@ -1274,6 +1301,7 @@ static int f2fs_remount(struct super_block *sb, int *flags, char *data)
 	bool need_restart_gc = false;
 	bool need_stop_gc = false;
 	bool no_extent_cache = !test_opt(sbi, EXTENT_CACHE);
+	int old_fsync_mode = sbi->fsync_mode;
 #ifdef CONFIG_F2FS_FAULT_INJECTION
 	struct f2fs_fault_info ffi = sbi->fault_info;
 #endif
@@ -1423,6 +1451,7 @@ restore_opts:
 		sbi->s_qf_names[i] = s_qf_names[i];
 	}
 #endif
+	sbi->fsync_mode = old_fsync_mode;
 	sbi->mount_opt = org_mount_opt;
 	sbi->active_logs = active_logs;
 	sb->s_flags = old_sb_flags;
