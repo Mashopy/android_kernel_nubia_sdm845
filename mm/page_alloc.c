@@ -3131,6 +3131,9 @@ static void warn_alloc_show_mem(gfp_t gfp_mask)
 		filter &= ~SHOW_MEM_FILTER_NODES;
 
 	show_mem(filter);
+        //nubia add
+        dump_tasks(NULL, NULL);
+        //nubia add end
 }
 
 void warn_alloc(gfp_t gfp_mask, const char *fmt, ...)

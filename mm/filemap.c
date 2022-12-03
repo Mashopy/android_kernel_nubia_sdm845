@@ -161,7 +161,7 @@ static int page_cache_tree_insert(struct address_space *mapping,
 		 * node->private_list is protected by
 		 * mapping->tree_lock.
 		 */
-		if (!list_empty(&node->private_list))
+		if (!list_empty(&node->private_list) && (node->private_list.next!=NULL) && (node->private_list.prev!=NULL))
 			list_lru_del(&workingset_shadow_nodes,
 				     &node->private_list);
 	}
