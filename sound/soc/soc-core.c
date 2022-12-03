@@ -1044,7 +1044,17 @@ static int soc_bind_dai_link(struct snd_soc_card *card,
 		if (!codec_dais[i]) {
 			dev_err(card->dev, "ASoC: CODEC DAI %s not registered\n",
 				codecs[i].dai_name);
-			goto _err_defer;
+#ifdef CONFIG_SND_SOC_TFA9894
+			if (!strcmp(codecs[i].dai_name, "tfa98xx-aif-1-34")){
+				dev_err(card->dev, "ASoC: No NXP smartpa\n");
+				return 0;
+			} else {
+				dev_err(card->dev, "ASoC: %s not registered\n", codecs[i].dai_name);
+				goto _err_defer;
+			}
+#else
+				goto _err_defer;
+#endif
 		}
 	}
 
