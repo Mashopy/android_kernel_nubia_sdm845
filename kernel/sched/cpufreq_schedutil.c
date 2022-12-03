@@ -19,6 +19,7 @@
 #include "sched.h"
 #include "tune.h"
 
+unsigned int nubia_cpufreq_ctrl_value=0;
 #ifdef CONFIG_SCHED_WALT
 unsigned long boosted_cpu_util(int cpu);
 #endif
@@ -161,8 +162,14 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 	struct cpufreq_policy *policy = sg_policy->policy;
 	unsigned int freq = arch_scale_freq_invariant() ?
 				policy->cpuinfo.max_freq : policy->cur;
-
-	freq = (freq + (freq >> 2)) * util / max;
+        if(nubia_cpufreq_ctrl_value == 0){
+	   freq = (freq + (freq >> 2)) * util / max;
+        }else if(nubia_cpufreq_ctrl_value == 1){
+           freq = (freq + (freq >> 2)) * util / max;
+        if(freq > 2000000) {
+           freq = (freq *100 * util)/(98*max);
+          }
+        }
 	trace_sugov_next_freq(policy->cpu, util, max, freq);
 
 	if (freq == sg_policy->cached_raw_freq && sg_policy->next_freq != UINT_MAX)
@@ -607,16 +614,31 @@ static ssize_t pl_store(struct gov_attr_set *attr_set, const char *buf,
 	return count;
 }
 
+static ssize_t cpufreq_ctrl_show(struct gov_attr_set *attr_set, char *buf)
+{
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", nubia_cpufreq_ctrl_value);
+}
+
+static ssize_t cpufreq_ctrl_store(struct gov_attr_set *attr_set, const char *buf,
+				   size_t count)
+{
+        sscanf(buf, "%d", &nubia_cpufreq_ctrl_value);
+	return count;
+}
+
 static struct governor_attr rate_limit_us = __ATTR_RW(rate_limit_us);
 static struct governor_attr hispeed_load = __ATTR_RW(hispeed_load);
 static struct governor_attr hispeed_freq = __ATTR_RW(hispeed_freq);
 static struct governor_attr pl = __ATTR_RW(pl);
+static struct governor_attr cpufreq_ctrl = __ATTR_RW(cpufreq_ctrl);
 
 static struct attribute *sugov_attributes[] = {
 	&rate_limit_us.attr,
 	&hispeed_load.attr,
 	&hispeed_freq.attr,
 	&pl.attr,
+	&cpufreq_ctrl.attr,
 	NULL
 };
 
