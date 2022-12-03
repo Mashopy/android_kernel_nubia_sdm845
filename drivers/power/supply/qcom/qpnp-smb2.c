@@ -330,6 +330,30 @@ static int smb2_parse_dt(struct smb2 *chip)
 
 	return 0;
 }
+#if defined(CONFIG_TYPEC_AUDIO_ADAPTER_SWITCH)
+#include <linux/of_gpio.h>
+static int smb2_pre_parse_dt(struct smb2 *chip)
+{
+	struct smb_charger *chg = &chip->chg;
+	struct device_node *node = chg->dev->of_node;
+
+	if (!node) {
+		pr_err("device tree node missing\n");
+		return -EINVAL;
+	}
+
+	chg->usb_audio_select_supported = of_property_read_bool(node,
+					"qcom,usb-audio-select-support");
+
+	chg->switch_en = of_get_named_gpio(node, "qcom,switch-en-gpio", 0);
+
+	chg->switch_select = of_get_named_gpio(node, "qcom,switch-select-gpio", 0);
+
+	chg->mbhc_int = of_get_named_gpio(node, "qcom,mbhc-int-gpio", 0);
+
+	return 0;
+}
+#endif
 
 /************************
  * USB PSY REGISTRATION *
@@ -1592,6 +1616,7 @@ static int smb2_init_hw(struct smb2 *chip)
 	 * AICL configuration:
 	 * start from min and AICL ADC disable
 	 */
+
 	rc = smblib_masked_write(chg, USBIN_AICL_OPTIONS_CFG_REG,
 			USBIN_AICL_START_AT_MAX_BIT
 				| USBIN_AICL_ADC_EN_BIT, 0);
@@ -2305,6 +2330,14 @@ static int smb2_probe(struct platform_device *pdev)
 			pr_err("Couldn't setup chg_config rc=%d\n", rc);
 		return rc;
 	}
+
+#if defined(CONFIG_TYPEC_AUDIO_ADAPTER_SWITCH)
+	rc = smb2_pre_parse_dt(chip);
+	if (rc < 0) {
+		pr_err("Couldn't pre-parse dt. rc=%d\n", rc);
+		return rc;
+	}
+#endif
 
 	rc = smb2_parse_dt(chip);
 	if (rc < 0) {

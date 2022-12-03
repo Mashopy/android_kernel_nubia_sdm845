@@ -10,6 +10,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+#define pr_fmt(fmt) "[spmi-gpio]%s,%d: " fmt, __func__,__LINE__
 
 #include <linux/gpio.h>
 #include <linux/module.h>

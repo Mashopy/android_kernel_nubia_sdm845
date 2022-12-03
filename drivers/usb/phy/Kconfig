@@ -253,4 +253,11 @@ config MSM_HSUSB_PHY
 	  the high-speed PHY which is usually paired with either the ChipIdea or
 	  Synopsys DWC3 USB IPs on MSM SOCs. This driver expects to configure the
 	  PHY with a dedicated register I/O memory region.
+
+config NUBIA_USB_PHY_TUNE
+	bool "nubia USB PHY tune"
+	depends on MSM_QUSB_PHY
+	default n
+	help
+          nubia USB PHY tune.
 endmenu

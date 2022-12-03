@@ -1,4 +1,4 @@
-/* Copyright (c) 2017-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,6 +16,11 @@
 #include "cam_sensor_util.h"
 #include "cam_trace.h"
 #include "cam_res_mgr_api.h"
+
+/*ZTEMT: fengxun add for lc898124--------Start*/
+extern int32_t msm_ois_lc898124_init_AF(struct camera_io_master ois_master);
+extern void msm_ois_lc898124_write_dac(unsigned int data);
+/*ZTEMT: fengxun add for lc898124--------End*/
 
 int32_t cam_actuator_construct_default_power_setting(
 	struct cam_sensor_power_ctrl_t *power_info)
@@ -125,6 +130,10 @@ static int32_t cam_actuator_power_down(struct cam_actuator_ctrl_t *a_ctrl)
 	struct cam_hw_soc_info *soc_info = &a_ctrl->soc_info;
 	struct cam_actuator_soc_private  *soc_private;
 
+	/*ZTEMT: fengxun add for cam_actuator_power_down--------Start*/
+	struct cam_sensor_power_setting *power_down_setting_temp;
+	/*ZTEMT: fengxun add for cam_actuator_power_down--------End*/
+
 	if (!a_ctrl) {
 		CAM_ERR(CAM_ACTUATOR, "failed: a_ctrl %pK", a_ctrl);
 		return -EINVAL;
@@ -139,6 +148,13 @@ static int32_t cam_actuator_power_down(struct cam_actuator_ctrl_t *a_ctrl)
 		CAM_ERR(CAM_ACTUATOR, "failed: power_info %pK", power_info);
 		return -EINVAL;
 	}
+
+	/*ZTEMT: fengxun add for cam_actuator_power_down--------Start*/
+	power_down_setting_temp = power_info->power_down_setting;
+	power_info->power_down_setting = power_info->power_setting;
+	power_info->power_down_setting_size = power_info->power_setting_size;
+	/*ZTEMT: fengxun add for cam_actuator_power_down--------End*/
+
 	rc = msm_camera_power_down(power_info, soc_info);
 	if (rc) {
 		CAM_ERR(CAM_ACTUATOR, "power down the core is failed:%d", rc);
@@ -146,6 +162,11 @@ static int32_t cam_actuator_power_down(struct cam_actuator_ctrl_t *a_ctrl)
 	}
 
 	camera_io_release(&a_ctrl->io_master_info);
+
+	/*ZTEMT: fengxun add for cam_actuator_power_down--------Start*/
+	power_info->power_down_setting = power_down_setting_temp;
+	power_info->power_down_setting_size = 0;
+	/*ZTEMT: fengxun add for cam_actuator_power_down--------End*/
 
 	return rc;
 }
@@ -193,12 +214,16 @@ static int32_t cam_actuator_i2c_modes_util(
 		for (i = 0; i < size; i++) {
 			rc = camera_io_dev_poll(
 			io_master_info,
-			i2c_list->i2c_settings.reg_setting[i].reg_addr,
-			i2c_list->i2c_settings.reg_setting[i].reg_data,
-			i2c_list->i2c_settings.reg_setting[i].data_mask,
+			i2c_list->i2c_settings.
+				reg_setting[i].reg_addr,
+			i2c_list->i2c_settings.
+				reg_setting[i].reg_data,
+			i2c_list->i2c_settings.
+				reg_setting[i].data_mask,
 			i2c_list->i2c_settings.addr_type,
-			i2c_list->i2c_settings.data_type,
-			i2c_list->i2c_settings.reg_setting[i].delay);
+				i2c_list->i2c_settings.data_type,
+			i2c_list->i2c_settings.
+				reg_setting[i].delay);
 			if (rc < 0) {
 				CAM_ERR(CAM_ACTUATOR,
 					"i2c poll apply setting Fail: %d", rc);
@@ -488,7 +513,6 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 				i2c_reg_settings->request_id = 0;
 				i2c_reg_settings->is_settings_valid = 1;
 				rc = cam_sensor_i2c_command_parser(
-					&a_ctrl->io_master_info,
 					i2c_reg_settings,
 					&cmd_desc[i], 1);
 				if (rc < 0) {
@@ -509,10 +533,27 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 				return rc;
 			}
 			a_ctrl->cam_act_state = CAM_ACTUATOR_CONFIG;
+
+			/*ZTEMT: fengxun add for lc898124--------Start*/
+			if (a_ctrl->io_master_info.cci_client->sid == 0x3E)
+			{
+				rc = msm_ois_lc898124_init_AF(a_ctrl->io_master_info);
+			}
+			/*ZTEMT: fengxun add for lc898124--------End*/
+
 		}
 
+		/*ZTEMT: fengxun add for lc898124--------Start*/
+		if (a_ctrl->io_master_info.cci_client->sid == 0x3E)
+		{
+			//rc = msm_ois_lc898124_init_AF(a_ctrl->io_master_info);
+		}
+		else
+		{
 		rc = cam_actuator_apply_settings(a_ctrl,
 			&a_ctrl->i2c_data.init_settings);
+		}
+		/*ZTEMT: fengxun add for lc898124--------End*/
 		if (rc < 0) {
 			CAM_ERR(CAM_ACTUATOR, "Cannot apply Init settings");
 			return rc;
@@ -545,9 +586,7 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 		offset = (uint32_t *)&csl_packet->payload;
 		offset += csl_packet->cmd_buf_offset / sizeof(uint32_t);
 		cmd_desc = (struct cam_cmd_buf_desc *)(offset);
-		rc = cam_sensor_i2c_command_parser(
-			&a_ctrl->io_master_info,
-			i2c_reg_settings,
+		rc = cam_sensor_i2c_command_parser(i2c_reg_settings,
 			cmd_desc, 1);
 		if (rc < 0) {
 			CAM_ERR(CAM_ACTUATOR,
@@ -573,9 +612,7 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 		offset = (uint32_t *)&csl_packet->payload;
 		offset += csl_packet->cmd_buf_offset / sizeof(uint32_t);
 		cmd_desc = (struct cam_cmd_buf_desc *)(offset);
-		rc = cam_sensor_i2c_command_parser(
-			&a_ctrl->io_master_info,
-			i2c_reg_settings,
+		rc = cam_sensor_i2c_command_parser(i2c_reg_settings,
 			cmd_desc, 1);
 		if (rc < 0) {
 			CAM_ERR(CAM_ACTUATOR,
@@ -603,11 +640,7 @@ int32_t cam_actuator_i2c_pkt_parse(struct cam_actuator_ctrl_t *a_ctrl,
 
 void cam_actuator_shutdown(struct cam_actuator_ctrl_t *a_ctrl)
 {
-	int rc = 0;
-	struct cam_actuator_soc_private  *soc_private =
-		(struct cam_actuator_soc_private *)a_ctrl->soc_info.soc_private;
-	struct cam_sensor_power_ctrl_t *power_info =
-		&soc_private->power_info;
+	int rc;
 
 	if (a_ctrl->cam_act_state == CAM_ACTUATOR_INIT)
 		return;
@@ -616,7 +649,6 @@ void cam_actuator_shutdown(struct cam_actuator_ctrl_t *a_ctrl)
 		rc = cam_actuator_power_down(a_ctrl);
 		if (rc < 0)
 			CAM_ERR(CAM_ACTUATOR, "Actuator Power down failed");
-		a_ctrl->cam_act_state = CAM_ACTUATOR_ACQUIRE;
 	}
 
 	if (a_ctrl->cam_act_state >= CAM_ACTUATOR_ACQUIRE) {
@@ -627,12 +659,6 @@ void cam_actuator_shutdown(struct cam_actuator_ctrl_t *a_ctrl)
 		a_ctrl->bridge_intf.link_hdl = -1;
 		a_ctrl->bridge_intf.session_hdl = -1;
 	}
-
-	kfree(power_info->power_setting);
-	kfree(power_info->power_down_setting);
-	power_info->power_setting = NULL;
-	power_info->power_down_setting = NULL;
-
 	a_ctrl->cam_act_state = CAM_ACTUATOR_INIT;
 }
 
@@ -642,14 +668,12 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 	int rc = 0;
 	struct cam_control *cmd = (struct cam_control *)arg;
 
+	/*ZTEMT: fengxun add for lc898124--------Start*/
+	struct i2c_settings_list *i2c_list;
+	/*ZTEMT: fengxun add for lc898124--------End*/
+
 	if (!a_ctrl || !cmd) {
 		CAM_ERR(CAM_ACTUATOR, " Invalid Args");
-		return -EINVAL;
-	}
-
-	if (cmd->handle_type != CAM_HANDLE_USER_POINTER) {
-		CAM_ERR(CAM_ACTUATOR, "Invalid handle type: %d",
-			cmd->handle_type);
 		return -EINVAL;
 	}
 
@@ -786,13 +810,26 @@ int32_t cam_actuator_driver_cmd(struct cam_actuator_ctrl_t *a_ctrl,
 		rc = cam_actuator_i2c_pkt_parse(a_ctrl, arg);
 		if (rc < 0) {
 			CAM_ERR(CAM_ACTUATOR, "Failed in actuator Parsing");
-			goto release_mutex;
 		}
 
 		if (a_ctrl->setting_apply_state ==
 			ACT_APPLY_SETTINGS_NOW) {
-			rc = cam_actuator_apply_settings(a_ctrl,
-				&a_ctrl->i2c_data.init_settings);
+
+             /*ZTEMT: fengxun add for lc898124--------Start*/
+             if (a_ctrl->io_master_info.cci_client->sid == 0x3E)
+             {
+			list_for_each_entry(i2c_list, &(a_ctrl->i2c_data.init_settings.list_head), list)
+			{
+				msm_ois_lc898124_write_dac(i2c_list->i2c_settings.reg_setting->reg_data);
+			}
+             }
+             else
+             {
+                       rc = cam_actuator_apply_settings(a_ctrl,
+                               &a_ctrl->i2c_data.init_settings);
+             }
+             /*ZTEMT: fengxun add for lc898124--------End*/
+
 			if (rc < 0)
 				CAM_ERR(CAM_ACTUATOR,
 					"Cannot apply Update settings");

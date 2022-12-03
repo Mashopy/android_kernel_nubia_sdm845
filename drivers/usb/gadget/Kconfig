@@ -603,4 +603,11 @@ source "drivers/usb/gadget/legacy/Kconfig"
 
 endchoice
 
+config NUBIA_USB_MTP_MB
+        bool "nubia USB prevent null pointer issue using memory barrier"
+        depends on USB_F_MTP
+        default n
+        help
+          prevent null pointer issue using memory barrier.
+
 endif # USB_GADGET

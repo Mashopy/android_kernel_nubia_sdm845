@@ -30,6 +30,9 @@
 #include "dsi_clk.h"
 #include "dsi_pwr.h"
 #include "sde_dbg.h"
+#ifdef CONFIG_NUBIA_LCD_DISP_PREFERENCE
+#include "nubia_disp_preference.h"
+#endif
 
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
@@ -55,7 +58,8 @@ static const struct of_device_id dsi_display_dt_match[] = {
 
 static struct dsi_display *main_display;
 
-static void dsi_display_mask_ctrl_error_interrupts(struct dsi_display *display)
+static void dsi_display_mask_ctrl_error_interrupts(struct dsi_display *display,
+			u32 mask, bool enable)
 {
 	int i;
 	struct dsi_display_ctrl *ctrl;
@@ -68,7 +72,25 @@ static void dsi_display_mask_ctrl_error_interrupts(struct dsi_display *display)
 		ctrl = &display->ctrl[i];
 		if (!ctrl)
 			continue;
-		dsi_ctrl_mask_error_status_interrupts(ctrl->ctrl);
+		dsi_ctrl_mask_error_status_interrupts(ctrl->ctrl, mask, enable);
+	}
+}
+
+static void dsi_display_set_ctrl_esd_check_flag(struct dsi_display *display,
+			bool enable)
+{
+	int i;
+	struct dsi_display_ctrl *ctrl;
+
+	if (!display)
+		return;
+
+	for (i = 0; (i < display->ctrl_count) &&
+			(i < MAX_DSI_CTRLS_PER_DISPLAY); i++) {
+		ctrl = &display->ctrl[i];
+		if (!ctrl)
+			continue;
+		ctrl->ctrl->esd_check_underway = enable;
 	}
 }
 
@@ -554,8 +576,7 @@ static int dsi_display_read_status(struct dsi_display_ctrl *ctrl,
 	if (dsi_ctrl_validate_host_state(ctrl->ctrl))
 		return 1;
 
-	/* acquire panel_lock to make sure no commands are in progress */
-	dsi_panel_acquire_panel_lock(panel);
+	pr_info(" ++\n");
 
 	config = &(panel->esd_config);
 	lenp = config->status_valid_params ?: config->status_cmds_rlen;
@@ -574,7 +595,7 @@ static int dsi_display_read_status(struct dsi_display_ctrl *ctrl,
 		rc = dsi_ctrl_cmd_transfer(ctrl->ctrl, &cmds[i].msg, flags);
 		if (rc <= 0) {
 			pr_err("rx cmd transfer failed rc=%d\n", rc);
-			goto error;
+			return rc;
 		}
 
 		memcpy(config->return_buf + start,
@@ -582,9 +603,6 @@ static int dsi_display_read_status(struct dsi_display_ctrl *ctrl,
 		start += lenp[i];
 	}
 
-error:
-	/* release panel_lock */
-	dsi_panel_release_panel_lock(panel);
 	return rc;
 }
 
@@ -658,11 +676,6 @@ static int dsi_display_status_reg_read(struct dsi_display *display)
 		}
 	}
 exit:
-	if (rc <= 0) {
-		dsi_display_ctrl_irq_update(display, false);
-		dsi_display_mask_ctrl_error_interrupts(display);
-	}
-
 	dsi_display_cmd_engine_disable(display);
 done:
 	return rc;
@@ -688,7 +701,7 @@ static int dsi_display_status_check_te(struct dsi_display *display)
 	reinit_completion(&display->esd_te_gate);
 	if (!wait_for_completion_timeout(&display->esd_te_gate,
 				esd_te_timeout)) {
-		pr_err("ESD check failed\n");
+		pr_err("TE check failed\n");
 		rc = -EINVAL;
 	}
 
@@ -697,30 +710,44 @@ static int dsi_display_status_check_te(struct dsi_display *display)
 	return rc;
 }
 
-int dsi_display_check_status(void *display)
+int dsi_display_check_status(void *display, bool te_check_override)
 {
 	struct dsi_display *dsi_display = display;
 	struct dsi_panel *panel;
 	u32 status_mode;
 	int rc = 0x1;
+	u32 mask;
 
-	if (dsi_display == NULL)
+	if (!dsi_display || !dsi_display->panel)
 		return -EINVAL;
 
 	panel = dsi_display->panel;
-
-	status_mode = panel->esd_config.status_mode;
-
-	mutex_lock(&dsi_display->display_lock);
-
+	
+	dsi_panel_acquire_panel_lock(panel);
 	if (!panel->panel_initialized) {
 		pr_debug("Panel not initialized\n");
-		mutex_unlock(&dsi_display->display_lock);
+		dsi_panel_release_panel_lock(panel);
 		return rc;
 	}
 
+	/* Prevent another ESD check,when ESD recovery is underway */
+	if (atomic_read(&panel->esd_recovery_pending)) {
+		dsi_panel_release_panel_lock(panel);
+		return rc;
+	}
+
+	if (te_check_override && gpio_is_valid(dsi_display->disp_te_gpio))
+		status_mode = ESD_MODE_PANEL_TE;
+	else
+		status_mode = panel->esd_config.status_mode;
+
 	dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
 		DSI_ALL_CLKS, DSI_CLK_ON);
+
+	/* Mask error interrupts before attempting ESD read */
+	mask = BIT(DSI_FIFO_OVERFLOW) | BIT(DSI_FIFO_UNDERFLOW);
+	dsi_display_set_ctrl_esd_check_flag(dsi_display, true);
+	dsi_display_mask_ctrl_error_interrupts(dsi_display, mask, true);
 
 	if (status_mode == ESD_MODE_REG_READ) {
 		rc = dsi_display_status_reg_read(dsi_display);
@@ -733,10 +760,20 @@ int dsi_display_check_status(void *display)
 		panel->esd_config.esd_enabled = false;
 	}
 
+	/* Unmask error interrupts */
+	if (rc > 0) {
+		dsi_display_set_ctrl_esd_check_flag(dsi_display, false);
+		dsi_display_mask_ctrl_error_interrupts(dsi_display, mask,
+							false);
+	} else {
+		/* Handle Panel failures during display disable sequence */
+		atomic_set(&panel->esd_recovery_pending, 1);
+	}
+
 	dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
 		DSI_ALL_CLKS, DSI_CLK_OFF);
-	mutex_unlock(&dsi_display->display_lock);
 
+	dsi_panel_release_panel_lock(panel);
 	return rc;
 }
 
@@ -2586,11 +2623,19 @@ static int dsi_host_detach(struct mipi_dsi_host *host,
 static ssize_t dsi_host_transfer(struct mipi_dsi_host *host,
 				 const struct mipi_dsi_msg *msg)
 {
-	struct dsi_display *display = to_dsi_display(host);
+	struct dsi_display *display;
 	int rc = 0, ret = 0;
 
 	if (!host || !msg) {
 		pr_err("Invalid params\n");
+		return 0;
+	}
+
+	display = to_dsi_display(host);
+
+	/* Avoid sending DCS commands when ESD recovery is pending */
+	if (atomic_read(&display->panel->esd_recovery_pending)) {
+		pr_debug("ESD recovery pending\n");
 		return 0;
 	}
 
@@ -4543,6 +4588,9 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 
 	if (display->is_active) {
 		main_display = display;
+#ifdef CONFIG_NUBIA_LCD_DISP_PREFERENCE
+	        nubia_set_dsi_ctrl(display);
+#endif
 		rc = _dsi_display_dev_init(display);
 		if (rc) {
 			pr_err("device init failed, rc=%d\n", rc);
@@ -5500,6 +5548,8 @@ int dsi_display_prepare(struct dsi_display *display)
 	mutex_lock(&display->display_lock);
 
 	mode = display->panel->cur_mode;
+
+	dsi_display_set_ctrl_esd_check_flag(display, false);
 
 	if (mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) {
 		if (display->is_cont_splash_enabled) {

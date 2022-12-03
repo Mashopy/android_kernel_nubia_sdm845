@@ -10,7 +10,7 @@
  * GNU General Public License for more details.
  */
 
-#define pr_fmt(fmt)	"haptics: %s: " fmt, __func__
+#define pr_fmt(fmt)	"[haptics]%s: " fmt, __func__
 
 #include <linux/atomic.h>
 #include <linux/delay.h>
@@ -27,6 +27,20 @@
 #include <linux/slab.h>
 #include <linux/qpnp/qpnp-misc.h>
 #include <linux/qpnp/qpnp-revid.h>
+
+#define DEBUG_HAPTIC
+#define QPNP_HAPTIC_MIN_START_TIME  100
+//#define CONFIG_FEATURE_ZTEMT_HAPTIC_VIBRATOR
+#ifdef DEBUG_HAPTIC
+#define hap_info(fmt, args...)  pr_info("%d "  fmt,__LINE__, ##args)
+#define hap_err(fmt, args...)  pr_err("%d "  fmt,__LINE__, ##args)
+#define hap_wan(fmt, args...)  pr_warn("%d "  fmt,__LINE__, ##args)
+#else
+#define hap_info(fmt, args...)
+#define hap_err(fmt, args...)
+#define hap_wan(fmt, args...)
+
+#endif
 
 /* Register definitions */
 #define HAP_STATUS_1_REG(chip)		(chip->base + 0x0A)
@@ -353,6 +367,9 @@ struct hap_chip {
 	bool				lra_auto_mode;
 	bool				play_irq_en;
 	bool				auto_res_err_recovery_hw;
+#ifdef CONFIG_FEATURE_ZTEMT_HAPTIC_VIBRATOR
+	u32				ztemt_vibrator_ms;
+#endif
 };
 
 static int qpnp_haptics_parse_buffer_dt(struct hap_chip *chip);
@@ -765,6 +782,13 @@ static int qpnp_haptics_play(struct hap_chip *chip, bool enable)
 
 		if (chip->play_mode == HAP_PWM)
 			pwm_disable(chip->pwm_data.pwm_dev);
+
+
+		rc = qpnp_haptics_mod_enable(chip, false);
+		if (rc < 0) {
+			pr_err("Error in disabling module, rc=%d\n", rc);
+			goto out;
+		}
 	}
 
 out:
@@ -1451,11 +1475,19 @@ static ssize_t qpnp_haptics_store_duration(struct device *dev,
 		return rc;
 
 	/* setting 0 on duration is NOP for now */
-	if (val <= 0)
+	if (val < 0)
 		return count;
-
+#ifdef CONFIG_FEATURE_ZTEMT_HAPTIC_VIBRATOR
+	if(0 != val)
+	{
+		val = val +chip->ztemt_vibrator_ms;
+	}
+#endif
 	if (val > chip->max_play_time_ms)
-		return -EINVAL;
+	{
+		//return -EINVAL;
+		val = chip->max_play_time_ms;
+	}
 
 	mutex_lock(&chip->param_lock);
 	rc = qpnp_haptics_auto_mode_config(chip, val);
@@ -2113,7 +2145,17 @@ static int qpnp_haptics_parse_dt(struct hap_chip *chip)
 		pr_err("Unable to get sc irq\n");
 		return chip->sc_irq;
 	}
-
+#ifdef CONFIG_FEATURE_ZTEMT_HAPTIC_VIBRATOR
+	chip->ztemt_vibrator_ms = 0;
+	rc = of_property_read_u32(node,"qcom,ztemt_vibrator_ms",&temp);
+	if (!rc) {
+		chip->ztemt_vibrator_ms = temp;
+	} else if (rc != -EINVAL) {
+		pr_err( "Unable to read ztemt_vibrator_ms\n");
+		return rc;
+	}
+	hap_info("nubia ztemt_vibrator_ms:%d\n",temp);
+#endif
 	chip->act_type = HAP_LRA;
 	rc = of_property_read_u32(node, "qcom,actuator-type", &temp);
 	if (!rc) {

@@ -1227,9 +1227,10 @@ kickoff:
 			}
 		}
 
-		if (dsi_ctrl->hw.ops.mask_error_intr)
+		if (dsi_ctrl->hw.ops.mask_error_intr &&
+		    !dsi_ctrl->esd_check_underway)
 			dsi_ctrl->hw.ops.mask_error_intr(&dsi_ctrl->hw,
-					BIT(DSI_FIFO_OVERFLOW), false);
+						BIT(DSI_FIFO_OVERFLOW), false);
 		dsi_ctrl->hw.ops.reset_cmd_fifo(&dsi_ctrl->hw);
 
 		/*
@@ -1335,6 +1336,10 @@ static int dsi_message_rx(struct dsi_ctrl *dsi_ctrl,
 	unsigned char *buff;
 	char cmd;
 
+	struct dsi_cmd_desc *of_cmd;
+
+        of_cmd = container_of(msg, struct dsi_cmd_desc, msg);
+	pr_info("msg->rx_len = %d",(int)msg->rx_len);
 	if (msg->rx_len <= 2) {
 		short_resp = true;
 		rd_pkt_size = msg->rx_len;
@@ -1358,6 +1363,13 @@ static int dsi_message_rx(struct dsi_ctrl *dsi_ctrl,
 			       rc);
 			goto error;
 		}
+		/*
+		 * wait before reading rdbk_data register, if any delay is
+		 * required after sending the read command.
+		 */
+		if (of_cmd && of_cmd->post_wait_ms)
+			usleep_range(of_cmd->post_wait_ms * 1000,
+				     ((of_cmd->post_wait_ms * 1000) + 10));
 
 		/* clear RDBK_DATA registers before proceeding */
 		dsi_ctrl->hw.ops.clear_rdbk_register(&dsi_ctrl->hw);
@@ -2836,7 +2848,8 @@ int dsi_ctrl_cmd_tx_trigger(struct dsi_ctrl *dsi_ctrl, u32 flags)
 						dsi_ctrl->cell_index);
 			}
 		}
-		if (dsi_ctrl->hw.ops.mask_error_intr)
+		if (dsi_ctrl->hw.ops.mask_error_intr &&
+				!dsi_ctrl->esd_check_underway)
 			dsi_ctrl->hw.ops.mask_error_intr(&dsi_ctrl->hw,
 					BIT(DSI_FIFO_OVERFLOW), false);
 
@@ -3334,7 +3347,8 @@ u32 dsi_ctrl_collect_misr(struct dsi_ctrl *dsi_ctrl)
 	return misr;
 }
 
-void dsi_ctrl_mask_error_status_interrupts(struct dsi_ctrl *dsi_ctrl)
+void dsi_ctrl_mask_error_status_interrupts(struct dsi_ctrl *dsi_ctrl, u32 idx,
+		bool mask_enable)
 {
 	if (!dsi_ctrl || !dsi_ctrl->hw.ops.error_intr_ctrl
 			|| !dsi_ctrl->hw.ops.clear_error_status) {
@@ -3347,9 +3361,23 @@ void dsi_ctrl_mask_error_status_interrupts(struct dsi_ctrl *dsi_ctrl)
 	 * register
 	 */
 	mutex_lock(&dsi_ctrl->ctrl_lock);
-	dsi_ctrl->hw.ops.error_intr_ctrl(&dsi_ctrl->hw, false);
-	dsi_ctrl->hw.ops.clear_error_status(&dsi_ctrl->hw,
+	if (idx & BIT(DSI_ERR_INTR_ALL)) {
+		/*
+		 * The behavior of mask_enable is different in ctrl register
+		 * and mask register and hence mask_enable is manipulated for
+		 * selective error interrupt masking vs total error interrupt
+		 * masking.
+		 */
+
+		dsi_ctrl->hw.ops.error_intr_ctrl(&dsi_ctrl->hw, !mask_enable);
+		dsi_ctrl->hw.ops.clear_error_status(&dsi_ctrl->hw,
 					DSI_ERROR_INTERRUPT_COUNT);
+	} else {
+		dsi_ctrl->hw.ops.mask_error_intr(&dsi_ctrl->hw, idx,
+								mask_enable);
+		dsi_ctrl->hw.ops.clear_error_status(&dsi_ctrl->hw,
+					DSI_ERROR_INTERRUPT_COUNT);
+	}
 	mutex_unlock(&dsi_ctrl->ctrl_lock);
 }
 

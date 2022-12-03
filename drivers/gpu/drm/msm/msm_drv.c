@@ -494,7 +494,7 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 	struct sched_param param;
 
 	ddev = drm_dev_alloc(drv, dev);
-	if (!ddev) {
+	if (IS_ERR_OR_NULL(ddev)) {
 		dev_err(dev, "failed to allocate drm_device\n");
 		return -ENOMEM;
 	}

@@ -3618,7 +3618,7 @@ static int _sde_crtc_reset_hw(struct drm_crtc *crtc,
 		SDE_DBG_DUMP("all", "dbg_bus", "vbif_dbg_bus");
 
 	/* optionally generate a panic instead of performing a h/w reset */
-	SDE_DBG_CTRL("stop_ftrace", "reset_hw_panic");
+	//SDE_DBG_CTRL("stop_ftrace", "reset_hw_panic");
 
 	n = min_t(size_t, sde_crtc->num_mixers, ARRAY_SIZE(sde_crtc->mixers));
 	for (i = 0; i < n; ++i) {

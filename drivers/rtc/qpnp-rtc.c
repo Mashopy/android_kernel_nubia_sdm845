@@ -622,7 +622,6 @@ fail_rtc_enable:
 
 	return rc;
 }
-
 static int qpnp_rtc_remove(struct platform_device *pdev)
 {
 	struct qpnp_rtc *rtc_dd = dev_get_drvdata(&pdev->dev);

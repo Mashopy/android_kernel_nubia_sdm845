@@ -17,6 +17,9 @@
 #include <linux/power_supply.h>
 #include <linux/regulator/driver.h>
 #include <linux/qpnp/qpnp-revid.h>
+#if defined(CONFIG_TYPEC_AUDIO_ADAPTER_SWITCH)
+#include <linux/of_gpio.h>
+#endif
 #include <linux/irq.h>
 #include <linux/pmic-voter.h>
 #include "smb-lib.h"
@@ -503,6 +506,7 @@ static int smblib_set_usb_pd_allowed_voltage(struct smb_charger *chg,
 	return rc;
 }
 
+
 /********************
  * HELPER FUNCTIONS *
  ********************/
@@ -551,6 +555,7 @@ static void smblib_rerun_apsd(struct smb_charger *chg)
 	int rc;
 
 	smblib_dbg(chg, PR_MISC, "re-running APSD\n");
+
 	if (chg->wa_flags & QC_AUTH_INTERRUPT_WA_BIT) {
 		rc = smblib_masked_write(chg,
 				USBIN_SOURCE_CHANGE_INTRPT_ENB_REG,
@@ -661,6 +666,7 @@ int smblib_mapping_cc_delta_from_field_value(struct smb_chg_param *param,
 static void smblib_uusb_removal(struct smb_charger *chg)
 {
 	int rc;
+
 	struct smb_irq_data *data;
 	struct storm_watch *wdata;
 
@@ -680,6 +686,7 @@ static void smblib_uusb_removal(struct smb_charger *chg)
 					false, 0);
 		}
 	}
+
 	vote(chg->pl_disable_votable, PL_DELAY_VOTER, true, 0);
 	vote(chg->awake_votable, PL_DELAY_VOTER, false, 0);
 
@@ -3461,11 +3468,13 @@ void smblib_usb_plugin_hard_reset_locked(struct smb_charger *chg)
 }
 
 #define PL_DELAY_MS			30000
+
 void smblib_usb_plugin_locked(struct smb_charger *chg)
 {
 	int rc;
 	u8 stat;
 	bool vbus_rising;
+
 	struct smb_irq_data *data;
 	struct storm_watch *wdata;
 
@@ -3856,6 +3865,7 @@ static void smblib_handle_apsd_done(struct smb_charger *chg, bool rising)
 
 	smblib_dbg(chg, PR_INTERRUPT, "IRQ: apsd-done rising; %s detected\n",
 		   apsd_result->name);
+
 }
 
 irqreturn_t smblib_handle_usb_source_change(int irq, void *data)
@@ -4291,6 +4301,135 @@ static void smblib_handle_typec_insertion(struct smb_charger *chg)
 	}
 }
 
+#if defined(CONFIG_TYPEC_AUDIO_ADAPTER_SWITCH)
+static int smblib_init_sink_audio_adapter(struct smb_charger *chg)
+{
+	int rc;
+	struct device_node *node = chg->dev->of_node;
+
+	if (!node) {
+		pr_err("device tree node missing\n");
+		return -EINVAL;
+	}
+
+	/** Swich enable, active high level. */
+	if (gpio_is_valid(chg->switch_en)) {
+		rc = devm_gpio_request(chg->dev, chg->switch_en, "switch_enable");
+		if (rc) {
+			pr_err("request switch_enable gpio failed, rc=%d\n", rc);
+			goto switch_en_gpio_err;
+		}
+	}
+	/** USB-Audio switch select, 0:audio mode, 1:usb mode.*/
+	if (gpio_is_valid(chg->switch_select)) {
+		rc = devm_gpio_request(chg->dev, chg->switch_select, "switch_select");
+		if (rc) {
+			pr_err("request switch_select gpio failed, rc=%d\n", rc);
+			goto switch_select_gpio_err;
+		}
+	}
+	/** Codec headsets detect pin, avtive low level.*/
+	if (gpio_is_valid(chg->mbhc_int)) {
+        rc = devm_gpio_request(chg->dev, chg->mbhc_int, "mbhc_int");
+		if (rc) {
+			pr_err("request mbhc_int gpio failed, rc=%d\n", rc);
+			goto mbhc_int_gpio_err;
+		}
+    }
+
+	/** Configuration GPIO to default value */
+	rc = gpio_direction_output(chg->switch_en, 0);
+	if (rc) {
+		smblib_err(chg, "Set switch_en gpio output fail.\n");
+	}
+
+	rc = gpio_direction_output(chg->switch_select, 0);
+	if (rc) {
+        smblib_err(chg, "Set switch_select gpio output fail.\n");
+    }
+
+	rc = gpio_direction_output(chg->mbhc_int, 1);
+	if (rc) {
+        smblib_err(chg, "Set mbhc_int gpio output fail.\n");
+    }
+
+	return 0;
+
+mbhc_int_gpio_err:
+	if (gpio_is_valid(chg->switch_select))
+		gpio_free(chg->switch_select);
+switch_select_gpio_err:
+	if (gpio_is_valid(chg->switch_en))
+		gpio_free(chg->switch_en);
+switch_en_gpio_err:
+	return rc;
+}
+
+static void smblib_deinit_sink_audio_adapter(struct smb_charger *chg)
+{
+	smblib_err(chg, "Error occurred while deinit sink audio.\n");
+
+	if (gpio_is_valid(chg->switch_select))
+		gpio_free(chg->switch_select);
+
+	if (gpio_is_valid(chg->switch_en))
+		gpio_free(chg->switch_en);
+
+	if (gpio_is_valid(chg->mbhc_int))
+		gpio_free(chg->mbhc_int);
+}
+
+static int smblib_set_sink_audio_adapter(struct smb_charger *chg, int enable)
+{
+	int ret;
+
+	smblib_err(chg, "Set audio to %s\n", enable ? "enable" : "disable");
+
+	if (gpio_is_valid(chg->mbhc_int)) {
+        ret = gpio_direction_output(chg->mbhc_int, !enable);
+		if (ret) {
+			smblib_err(chg, "Set mbhc_int output fail.\n");
+		}
+		smblib_err(chg, "Current mbhc_int gpio status:%d\n", gpio_get_value(chg->mbhc_int));
+	}
+
+	if (gpio_is_valid(chg->switch_select)) {
+        ret = gpio_direction_output(chg->switch_select, enable);
+		if (ret) {
+			smblib_err(chg, "Set switch_select output fail.\n");
+		}
+		smblib_err(chg, "Current switch_select gpio status:%d\n", gpio_get_value(chg->switch_select));
+	}
+
+	return 0;
+}
+
+static int smblib_handle_sink_audio_adapter(struct smb_charger *chg)
+{
+	int rc;
+	u8 stat;
+
+	rc = smblib_read(chg, TYPE_C_STATUS_2_REG, &stat);
+	if (rc < 0) {
+		smblib_err(chg, "Couldn't read TYPE_C_STATUS_2 rc=%d\n", rc);
+		return rc;
+	}
+	pr_err("TYPE_C_STATUS_2 = 0x%02x\n", stat);
+
+	/* Set Switch select to USB as default */
+	if (gpio_is_valid(chg->switch_select) && gpio_get_value(chg->switch_select)) {
+		smblib_set_sink_audio_adapter(chg, 0);
+	}
+
+	/* Set to Audio mode, when RARA on CC1/CC2 */
+	if (stat & DFP_RA_RA_BIT) {
+		smblib_set_sink_audio_adapter(chg, 1);
+	}
+
+	return 0;
+}
+#endif
+
 static void smblib_handle_rp_change(struct smb_charger *chg, int typec_mode)
 {
 	int rp_ua;
@@ -4345,6 +4484,7 @@ static void smblib_handle_typec_cc_state_change(struct smb_charger *chg)
 
 	if (!chg->typec_present && chg->typec_mode != POWER_SUPPLY_TYPEC_NONE) {
 		chg->typec_present = true;
+
 		smblib_dbg(chg, PR_MISC, "TypeC %s insertion\n",
 			smblib_typec_mode_name[chg->typec_mode]);
 		smblib_handle_typec_insertion(chg);
@@ -4416,6 +4556,12 @@ irqreturn_t smblib_handle_usb_typec_change(int irq, void *data)
 		return IRQ_HANDLED;
 	}
 
+#if defined(CONFIG_TYPEC_AUDIO_ADAPTER_SWITCH)
+	if(chg->usb_audio_select_supported){
+		smblib_handle_sink_audio_adapter(chg);
+	}
+#endif
+
 	mutex_lock(&chg->lock);
 	smblib_usb_typec_change(chg);
 	mutex_unlock(&chg->lock);
@@ -4462,6 +4608,7 @@ static void smblib_bb_removal_work(struct work_struct *work)
 #define BOOST_BACK_UNVOTE_DELAY_MS		750
 #define BOOST_BACK_STORM_COUNT			3
 #define WEAK_CHG_STORM_COUNT			8
+
 irqreturn_t smblib_handle_switcher_power_ok(int irq, void *data)
 {
 	struct smb_irq_data *irq_data = data;
@@ -5214,6 +5361,13 @@ int smblib_init(struct smb_charger *chg)
 
 		chg->bms_psy = power_supply_get_by_name("bms");
 		chg->pl.psy = power_supply_get_by_name("parallel");
+
+	#if defined(CONFIG_TYPEC_AUDIO_ADAPTER_SWITCH)
+		if(chg->usb_audio_select_supported){
+			smblib_init_sink_audio_adapter(chg);
+		}
+	#endif
+
 		if (chg->pl.psy) {
 			rc = smblib_stat_sw_override_cfg(chg, false);
 			if (rc < 0) {
@@ -5263,6 +5417,12 @@ int smblib_deinit(struct smb_charger *chg)
 	}
 
 	smblib_iio_deinit(chg);
+
+#if defined(CONFIG_TYPEC_AUDIO_ADAPTER_SWITCH)
+	if(chg->usb_audio_select_supported){
+		smblib_deinit_sink_audio_adapter(chg);
+	}
+#endif
 
 	return 0;
 }

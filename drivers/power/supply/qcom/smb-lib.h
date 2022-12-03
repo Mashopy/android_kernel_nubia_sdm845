@@ -59,6 +59,7 @@ enum print_reason {
 #define SW_QC3_VOTER			"SW_QC3_VOTER"
 #define AICL_RERUN_VOTER		"AICL_RERUN_VOTER"
 #define LEGACY_UNKNOWN_VOTER		"LEGACY_UNKNOWN_VOTER"
+
 #define CC2_WA_VOTER			"CC2_WA_VOTER"
 #define QNOVO_VOTER			"QNOVO_VOTER"
 #define BATT_PROFILE_VOTER		"BATT_PROFILE_VOTER"
@@ -321,6 +322,13 @@ struct smb_charger {
 	int			thermal_levels;
 	int			*thermal_mitigation;
 	int			dcp_icl_ua;
+#if defined(CONFIG_TYPEC_AUDIO_ADAPTER_SWITCH)
+	int			usb_audio_select_supported;
+	int			switch_en;
+	int			switch_select;
+	int			mbhc_int;
+#endif
+
 	int			fake_capacity;
 	int			fake_batt_status;
 	bool			step_chg_enabled;
@@ -541,7 +549,6 @@ int smblib_set_prop_pr_swap_in_progress(struct smb_charger *chg,
 				const union power_supply_propval *val);
 int smblib_stat_sw_override_cfg(struct smb_charger *chg, bool override);
 void smblib_usb_typec_change(struct smb_charger *chg);
-
 int smblib_init(struct smb_charger *chg);
 int smblib_deinit(struct smb_charger *chg);
 #endif /* __SMB2_CHARGER_H */

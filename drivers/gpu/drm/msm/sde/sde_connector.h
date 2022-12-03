@@ -228,9 +228,10 @@ struct sde_connector_ops {
 	/**
 	 * check_status - check status of connected display panel
 	 * @display: Pointer to private display handle
+	 * @te_check_override: Whether check TE from panel or default check
 	 * Returns: positive value for success, negetive or zero for failure
 	 */
-	int (*check_status)(void *display);
+	int (*check_status)(void *display, bool te_check_override);
 
 	/**
 	 * cmd_transfer - Transfer command to the connected display panel
@@ -311,6 +312,8 @@ struct sde_connector_evt {
  * @bl_scale: BL scale value for ABA feature
  * @bl_scale_ad: BL scale value for AD feature
  * last_cmd_tx_sts: status of the last command transfer
+ * @panel_dead: Flag to indicate if panel has gone bad
+ * @esd_status_check: Flag to indicate if ESD thread is scheduled or not
  */
 struct sde_connector {
 	struct drm_connector base;
@@ -348,6 +351,7 @@ struct sde_connector {
 	struct delayed_work status_work;
 	u32 force_panel_dead;
 
+	bool panel_dead;
 	bool esd_status_check;
 
 	bool bl_scale_dirty;
@@ -744,4 +748,15 @@ void sde_conn_timeline_status(struct drm_connector *conn);
  */
 void sde_connector_helper_bridge_disable(struct drm_connector *connector);
 
+/*
+ * sde_connector_helper_bridge_enable - helper function for drm bridge enable
+ * @connector: Pointer to DRM connector object
+ */
+void sde_connector_helper_bridge_enable(struct drm_connector *connector);
+
+/**
+ * sde_connector_esd_status - helper function to check te status
+ * @connector: Pointer to DRM connector object
+ */
+int sde_connector_esd_status(struct drm_connector *connector);
 #endif /* _SDE_CONNECTOR_H_ */

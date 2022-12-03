@@ -611,6 +611,9 @@ static ssize_t mtp_read(struct file *fp, char __user *buf,
 
 	spin_lock_irq(&dev->lock);
 	if (dev->ep_out->desc) {
+#ifdef CONFIG_NUBIA_USB_MTP_MB
+		mb();
+#endif
 		len = usb_ep_align_maybe(cdev->gadget, dev->ep_out, count);
 		if (len > MTP_BULK_BUFFER_SIZE) {
 			spin_unlock_irq(&dev->lock);

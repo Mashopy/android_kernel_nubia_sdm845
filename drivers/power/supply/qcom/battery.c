@@ -379,6 +379,7 @@ static struct class_attribute pl_attributes[] = {
  *  FCC  *
  **********/
 #define EFFICIENCY_PCT	80
+
 static void get_fcc_split(struct pl_data *chip, int total_ua,
 			int *master_ua, int *slave_ua)
 {
@@ -424,10 +425,12 @@ static void get_fcc_split(struct pl_data *chip, int total_ua,
 	 * through main charger's BATFET, keep the main charger's FCC
 	 * to the votable result.
 	 */
+
 	if (chip->pl_batfet_mode == POWER_SUPPLY_PL_STACKED_BATFET)
 		*master_ua = max(0, total_ua);
 	else
 		*master_ua = max(0, total_ua - *slave_ua);
+
 }
 
 #define MINIMUM_PARALLEL_FCC_UA		500000
